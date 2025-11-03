@@ -1,122 +1,50 @@
-"""
-Config-Driven SQL Metadata Extractor
-------------------------------------
-✅ Removes all hardcoding (template, joins, columns)
-✅ Template loaded externally for flexibility
-✅ Easily reused across schema types or environments
-"""
+import csv
+from collections import Counter
+from pathlib import Path
+from langchain_core.documents import Document
 
-import pandas as pd
-from typing import Callable, List, Optional
+# Simulated example_docs (replace this with your actual object in your code)
+example_docs = [
+    Document(id="e8039df7-5df1-4688-9a51-1ab48ee4a190", metadata={}, page_content="..."),
+    Document(id="9ad45f4e-3640-47b0-97fb-b9a2d62e4784", metadata={}, page_content="..."),
+    Document(id="611927b3-6692-4866-9e7e-7a829bd4b536", metadata={}, page_content="...")
+]
 
+# CSV file path
+CSV_FILE = Path("document_usage.csv")
 
-# ----------------------------------------------------------------------
-# 🔹 External Default SQL Template
-# ----------------------------------------------------------------------
-DEFAULT_SQL_TEMPLATE = """
-SELECT DISTINCT
-    '{table_name}' AS source_table,
-    {select_columns}
-FROM {table_name} AS ta
-JOIN {join_table} AS jt
-    ON ta.{join_key_local} = jt.{join_key_remote}
-"""
-
-ID_COLUMN=""
-NAME_COLUMN=""
-# ----------------------------------------------------------------------
-# 🔹 Configurable, Optimized Metadata Extractor
-# ----------------------------------------------------------------------
-class SQLMetadataExtractor:
+def update_usage(example_docs):
     """
-    Generic SQL Metadata Extractor
-    ------------------------------
-    Generates and executes combined SQL queries to retrieve
-    metadata relationships between tables and a lookup table.
+    Track how many times each Document (by ID) appears in example_docs.
+    Append or update the usage count in a CSV file.
     """
+    # Extract document IDs
+    doc_ids = [doc.id for doc in example_docs]
 
-    def __init__(
-        self,
-        tables: List[str],
-        run_query_fn: Callable[[str], pd.DataFrame],
-        join_table: str,
-        join_key_local: str,
-        join_key_remote: str,
-        select_columns: Optional[List[str]] = None,
-        sql_template: Optional[str] = None,
-    ):
-        """
-        Args:
-            tables: List of source table names
-            run_query_fn: Function that executes SQL and returns a DataFrame
-            join_table: The lookup/join table name
-            join_key_local: Column name in source tables (foreign key)
-            join_key_remote: Column name in join table (primary key)
-            select_columns: Columns to fetch from join table
-            sql_template: Custom SQL template (defaults to global DEFAULT_SQL_TEMPLATE)
-        """
-        self.tables = tables
-        self.run_query_fn = run_query_fn
-        self.join_table = join_table
-        self.join_key_local = join_key_local
-        self.join_key_remote = join_key_remote
-        self.select_columns = select_columns or ["*"]
-        self.sql_template = sql_template or DEFAULT_SQL_TEMPLATE
+    # Load existing usage counts
+    usage = Counter()
+    if CSV_FILE.exists():
+        with open(CSV_FILE, mode="r", newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                usage[row["document_id"]] = int(row["usage_count"])
 
-    # ------------------------------------------------------------------
-    def generate_combined_query(self) -> str:
-        """Generate one combined SQL query using the template."""
-        column_str = ", ".join(f"jt.{col}" for col in self.select_columns)
-        parts = [
-            self.sql_template.format(
-                table_name=tbl,
-                select_columns=column_str,
-                join_table=self.join_table,
-                join_key_local=self.join_key_local,
-                join_key_remote=self.join_key_remote,
-            )
-            for tbl in self.tables
-        ]
-        return "\nUNION ALL\n".join(parts)
+    # Update usage count
+    for doc_id in doc_ids:
+        usage[doc_id] += 1
 
-    # ------------------------------------------------------------------
-    def fetch_all_metadata(self) -> pd.DataFrame:
-        """Execute the combined SQL query."""
-        query = self.generate_combined_query()
-        return self.run_query_fn(query)
+    # Write back to CSV
+    with open(CSV_FILE, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=["document_id", "usage_count"])
+        writer.writeheader()
+        for doc_id, count in usage.items():
+            writer.writerow({"document_id": doc_id, "usage_count": count})
 
-    # ------------------------------------------------------------------
-    def format_output(self, df: pd.DataFrame) -> str:
-        """Format combined results into compact readable text."""
-        if df.empty:
-            return "⚠️ No data found."
+    print("✅ Document usage updated successfully!")
+    for doc_id, count in usage.items():
+        print(f"{doc_id}: {count} uses")
 
-        output = []
-        for table, group in df.groupby("source_table"):
-            lines = [f"{table}:"]
-            # Handle standard id/name schema
-            if {ID_COLUMN, NAME_COLUMN}.issubset(group.columns):
-                lines.extend(
-                    group.apply(
-                        lambda r: f"{r[ID_COLUMN]}: {r[NAME_COLUMN]}", axis=1
-                    )
-                )
-            else:
-                # Generic fallback for other schemas
-                for _, row in group.iterrows():
-                    kv_pairs = ", ".join(
-                        f"{col}={row[col]}"
-                        for col in group.columns
-                        if col not in {"source_table"}
-                    )
-                    lines.append(kv_pairs)
-            output.append("\n".join(lines))
 
-        return "\n\n".join(output)
-
-    # ------------------------------------------------------------------
-    def run(self) -> None:
-        """Execute extractor and print formatted metadata."""
-        df = self.fetch_all_metadata()
-        formatted = self.format_output(df)
-        print(formatted)
+# Example usage
+if __name__ == "__main__":
+    update_usage(example_docs)
